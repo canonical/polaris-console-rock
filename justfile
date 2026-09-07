@@ -48,11 +48,11 @@ clean:
 
 # Test rock - basic tests (HTTP mode)
 test-basic:
-    bash tests/console/test_http.sh
+    /usr/bin/env bash tests/console/test_http.sh
 
 # Test rock - TLS mode tests
 test-tls:
-    bash tests/console/test_tls.sh
+    /usr/bin/env bash tests/console/test_tls.sh
 
 # Run all test suites
 test: test-basic test-tls

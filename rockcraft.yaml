@@ -1,0 +1,134 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: polaris-console
+base: bare
+build-base: ubuntu@26.04
+version: "0.1.0"
+summary: Apache Polaris Console rock OCI
+description: |
+  This is an OCI image containing the modern web interface for Apache Polaris in order
+  to be used in Charmed Operators, providing automated operations management from day
+  0 to day 2 on the Apache Polaris catalog for Apache Iceberg, on top of a K8s cluster.
+  It is an open source, end-to-end, production ready data platform on top of cloud native
+  technologies.
+  This rock bundles a nginx web and reverse proxy server to serve the Console and redirect traffic
+  to the Polaris backend.
+license: Apache-2.0
+source-code: https://github.com/canonical/polaris-console-rock
+issues: https://github.com/canonical/polaris-console-rock/issues/new/choose
+
+environment:
+  PEBBLE_PERSIST: never
+
+platforms:
+  amd64:
+  arm64:
+
+run_user: _daemon_
+
+services:
+  nginx:
+    override: replace
+    startup: enabled
+    command: /usr/local/bin/start-nginx.sh
+    environment:
+      VITE_POLARIS_API_URL: ""
+      VITE_POLARIS_REALM: POLARIS
+      VITE_POLARIS_PRINCIPAL_SCOPE: PRINCIPAL_ROLE:ALL
+      VITE_POLARIS_REALM_HEADER_NAME: Polaris-Realm
+      VITE_OAUTH_TOKEN_URL: ""
+      VITE_OIDC_ISSUER_URL: ""
+      VITE_OIDC_CLIENT_ID: ""
+      VITE_OIDC_REDIRECT_URI: ""
+      VITE_OIDC_SCOPE: openid profile email
+      NGINX_TLS_CERT_PATH: /etc/nginx/tls/tls.crt
+      NGINX_TLS_KEY_PATH: /etc/nginx/tls/tls.key
+
+parts:
+  nginx:
+    # Replicates https://github.com/canonical/nginx-rock/
+    plugin: nil
+    stage-packages:
+      - base-files_base
+      - base-files_chisel
+      - base-files_release-info
+      - base-passwd_data
+      - nginx_bins
+      - dash_bins
+    stage:
+      - -etc/nginx/nginx.conf
+      - -etc/nginx/sites-enabled
+      - -etc/nginx/sites-available
+      - -etc/nginx/snippets
+      - -etc/nginx/fastcgi.conf
+      - -etc/nginx/fastcgi_params
+      - -etc/nginx/scgi_params
+      - -etc/nginx/uwsgi_params
+      - -etc/nginx/proxy_params
+      - -etc/nginx/koi-utf
+      - -etc/nginx/koi-win
+      - -etc/nginx/win-utf
+      - -usr/share/nginx
+      - -var/www/html
+      - -var/log/nginx
+      - -var/lib/nginx
+
+  polaris-console:
+    plugin: nil
+    source: https://github.com/apache/polaris-tools.git
+    source-type: git
+    source-commit: 36090e045b9281d8ae837e50b36018bb9913be8a
+    build-packages:
+      - make
+      - nodejs
+      - npm
+    override-build: |
+      cd console
+      make build
+      mkdir -p "$CRAFT_PART_INSTALL/var/www/polaris"
+      cp -r dist/* "$CRAFT_PART_INSTALL/var/www/polaris/"
+      install -Dm644 LICENSE-BUNDLE "$CRAFT_PART_INSTALL/LICENSE"
+      install -Dm644 NOTICE "$CRAFT_PART_INSTALL/NOTICE"
+
+  nginx-config:
+    plugin: dump
+    source: local
+    organize:
+      nginx.conf: etc/nginx/nginx.conf
+      http.conf: usr/share/polaris-console/nginx/http.conf
+      tls.conf: usr/share/polaris-console/nginx/tls.conf
+      start-nginx.sh: usr/local/bin/start-nginx.sh
+    stage:
+      - etc/nginx/nginx.conf
+      - usr/local/bin/start-nginx.sh
+      - usr/share/polaris-console/nginx/http.conf
+      - usr/share/polaris-console/nginx/tls.conf
+
+  non-root-user:
+    after: [polaris-console, nginx-config]
+    plugin: nil
+    override-prime: |
+      CONSOLE_UID=584792
+      CONSOLE_GID=584792
+
+      craftctl default
+
+      install -d -m 770 var/www/polaris
+      chown -R ${CONSOLE_UID}:${CONSOLE_GID} var/www/polaris
+      chmod -R 750 var/www/polaris
+
+      install -d -m 750 etc/nginx/tls
+      chown -R ${CONSOLE_UID}:${CONSOLE_GID} etc/nginx/tls
+      chmod 750 etc/nginx/tls
+
+      install -d -m 770 tmp
+      install -d -m 770 tmp/nginx-client-body
+      install -d -m 770 tmp/nginx-conf.d
+      install -d -m 770 tmp/nginx-fastcgi
+      install -d -m 770 tmp/nginx-proxy
+      install -d -m 770 tmp/nginx-scgi
+      install -d -m 770 tmp/nginx-uwsgi
+      chown -R ${CONSOLE_UID}:${CONSOLE_GID} tmp
+
+      chmod 755 usr/local/bin/start-nginx.sh

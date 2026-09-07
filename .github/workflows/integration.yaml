@@ -1,0 +1,130 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: Run tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  collect-integration-tests:
+    name: Collect integration test spread jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up environment
+        run: |
+          sudo snap install go --classic
+          go install github.com/canonical/spread/cmd/spread@latest
+
+      - name: Collect spread jobs
+        id: collect-jobs
+        shell: python
+        run: |
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          spread_jobs = (
+              subprocess.run(
+                  [pathlib.Path.home() / "go/bin/spread", "-list", "github-ci"],
+                  capture_output=True,
+                  check=True,
+                  text=True,
+              )
+              .stdout.strip()
+              .split("\n")
+          )
+
+
+          jobs = []
+          for job in spread_jobs:
+              # Example: "github-ci:ubuntu-24.04:tests/spread/basic"
+              _, runner, task = job.split(":")
+              task_name = task.removeprefix("tests/spread/")
+
+              if "arm" in runner:
+                  architecture = "arm64"
+              else:
+                  architecture = "amd64"
+
+              name = f"{task_name} | {architecture} ({runner})"
+              name_in_artifact = f"{task_name}-{architecture}-{runner}"
+              jobs.append({
+                  "spread_job": job,
+                  "name": name,
+                  "name_in_artifact": name_in_artifact,
+                  "runner": runner,
+                  "arch": architecture
+              })
+
+          output = f"jobs={json.dumps(jobs)}"
+          print(output)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as file:
+              file.write(output)
+    outputs:
+      jobs: ${{ steps.collect-jobs.outputs.jobs }}
+
+  integration-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.collect-integration-tests.outputs.jobs) }}
+    name: ${{ matrix.job.name }}
+    needs:
+      - collect-integration-tests
+    runs-on: ${{ matrix.job.runner }}
+    timeout-minutes: 120
+    steps:
+      - name: Free up disk space
+        timeout-minutes: 10
+        run: |
+          sudo rm -rf \
+            /opt/google \
+            /opt/hostedtoolcache \
+            /opt/microsoft/powershell \
+            /opt/microsoft/msedge \
+            "$AGENT_TOOLSDIRECTORY" \
+            /usr/lib/firefox \
+            /usr/lib/mono \
+            /usr/local/julia* \
+            /usr/local/lib/android \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/share/dotnet \
+            /usr/share/gradle* \
+            /usr/share/miniconda \
+            /usr/share/sbt \
+            /usr/share/swift \
+            /home/linuxbrew
+          printf '\nDisk usage\n'
+          df --human-readable
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up spread
+        run: |
+          sudo snap install go --classic
+          go install github.com/canonical/spread/cmd/spread@latest
+
+      - name: Download packed rock
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: polaris-console-${{ matrix.job.arch }}
+          path: polaris-console
+          merge-multiple: true
+
+      - name: Run spread job
+        timeout-minutes: 110
+        id: spread
+        run: |
+          mv polaris-console/*.tar .
+          ~/go/bin/spread -vv '${{ matrix.job.spread_job }}'

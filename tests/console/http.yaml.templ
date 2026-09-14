@@ -1,0 +1,53 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: polaris-console
+  namespace: ${NAMESPACE}
+  labels:
+    app: polaris-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: polaris-console
+  template:
+    metadata:
+      labels:
+        app: polaris-console
+    spec:
+      containers:
+        - name: polaris-console
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: polaris-console
+  namespace: ${NAMESPACE}
+  labels:
+    app: polaris-console
+spec:
+  selector:
+    app: polaris-console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

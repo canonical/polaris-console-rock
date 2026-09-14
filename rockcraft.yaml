@@ -98,12 +98,14 @@ parts:
       nginx.conf: etc/nginx/nginx.conf
       http.conf: usr/share/polaris-console/nginx/http.conf
       tls.conf: usr/share/polaris-console/nginx/tls.conf
+      server-common.conf: usr/share/polaris-console/nginx/server-common.conf
       start-nginx.sh: usr/local/bin/start-nginx.sh
     stage:
       - etc/nginx/nginx.conf
       - usr/local/bin/start-nginx.sh
       - usr/share/polaris-console/nginx/http.conf
       - usr/share/polaris-console/nginx/tls.conf
+      - usr/share/polaris-console/nginx/server-common.conf
 
   non-root-user:
     after: [polaris-console, nginx-config]
